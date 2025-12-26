@@ -1,0 +1,44 @@
+{
+  "elements": [
+    {
+      "type": "SelectInstance",
+      "name": "PushoverInstance",
+      "caption": "Pushover Instanz"
+    },
+    {
+      "type": "List",
+      "name": "Variables",
+      "caption": "Überwachte Low_Bat Variablen",
+      "add": true,
+      "delete": true,
+      "sort": true,
+      "columns": [
+        {
+          "caption": "Variable",
+          "name": "VariableID",
+          "width": "260px",
+          "add": 0,
+          "edit": {
+            "type": "SelectVariable"
+          }
+        },
+        {
+          "caption": "Beschriftung (Name in Nachricht)",
+          "name": "Label",
+          "width": "auto",
+          "add": "",
+          "edit": {
+            "type": "ValidationTextBox"
+          }
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "label": "Testnachricht senden",
+      "onClick": "LBM_Test($id);"
+    }
+  ]
+}
