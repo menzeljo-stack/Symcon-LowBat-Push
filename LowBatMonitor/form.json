@@ -6,6 +6,40 @@
       "caption": "Pushover Instanz"
     },
     {
+      "type": "ValidationTextBox",
+      "name": "PushTitle",
+      "caption": "Push Titel"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "PushPriority",
+      "caption": "Priorität (0 = normal)",
+      "minimum": -2,
+      "maximum": 2
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "AlarmText",
+      "caption": "Text bei LOW (TRUE)"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "OkText",
+      "caption": "Text bei OK (FALSE)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "ReminderEnabled",
+      "caption": "Tägliche Erinnerung senden, solange LOW anliegt"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "ReminderHour",
+      "caption": "Erinnerung um (Stunde 0-23)",
+      "minimum": 0,
+      "maximum": 23
+    },
+    {
       "type": "List",
       "name": "Variables",
       "caption": "Überwachte Low_Bat Variablen",
@@ -13,6 +47,15 @@
       "delete": true,
       "sort": true,
       "columns": [
+        {
+          "caption": "Aktiv",
+          "name": "Enabled",
+          "width": "80px",
+          "add": true,
+          "edit": {
+            "type": "CheckBox"
+          }
+        },
         {
           "caption": "Variable",
           "name": "VariableID",
@@ -23,7 +66,7 @@
           }
         },
         {
-          "caption": "Beschriftung (Name in Nachricht)",
+          "caption": "Name (in Nachricht)",
           "name": "Label",
           "width": "auto",
           "add": "",
@@ -38,7 +81,7 @@
     {
       "type": "Button",
       "label": "Testnachricht senden",
-      "onClick": "LBM_Test($id);"
+      "onClick": "IPS_RequestAction($id, 'Test', 0);"
     }
   ]
 }
