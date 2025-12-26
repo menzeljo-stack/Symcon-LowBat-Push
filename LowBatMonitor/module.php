@@ -6,15 +6,19 @@ class LowBatMonitor extends IPSModule
     {
         parent::Create();
 
-        // Pushover Instanz-ID
+        // Pushover-Instanz (TUPO)
         $this->RegisterPropertyInteger('PushoverInstance', 0);
+
+        // Optional: Titel & Priorität
+        $this->RegisterPropertyString('PushTitle', 'LowBat Monitor');
+        $this->RegisterPropertyInteger('PushPriority', 0);
 
         // Liste: [{"VariableID":12345,"Label":"Fensterkontakt Küche"}, ...]
         $this->RegisterPropertyString('Variables', '[]');
 
         // interne Buffers
-        $this->SetBuffer('States', json_encode([]));
-        $this->SetBuffer('VarList', json_encode([]));
+        $this->SetBuffer('States', json_encode([]));   // letzter bekannter bool-Zustand pro Variable
+        $this->SetBuffer('VarList', json_encode([]));   // zuletzt registrierte VariableIDs
     }
 
     public function ApplyChanges()
@@ -33,8 +37,8 @@ class LowBatMonitor extends IPSModule
             }
         }
 
-        // Neue Liste registrieren
-        $cfg = $this->getConfigVars(); // [varID => label]
+        // Neue Registrierungen setzen
+        $cfg = $this->getConfigVars();   // [varID => label]
         $ids = array_keys($cfg);
 
         foreach ($ids as $vid) {
@@ -45,7 +49,7 @@ class LowBatMonitor extends IPSModule
 
         $this->SetBuffer('VarList', json_encode($ids));
 
-        // Zustände initialisieren (damit beim Speichern nicht sofort "Alarm" rausgeht)
+        // Zustände initialisieren (damit beim Speichern nichts sofort triggert)
         $states = [];
         foreach ($cfg as $vid => $label) {
             if (!IPS_VariableExists($vid)) {
@@ -58,7 +62,20 @@ class LowBatMonitor extends IPSModule
         $this->SetSummary(count($ids) . ' Variablen');
     }
 
-    // Button aus der Config
+    // Damit Buttons / UI-Actions zuverlässig funktionieren:
+    public function RequestAction($Ident, $Value)
+    {
+        switch ($Ident) {
+            case 'Test':
+                $this->Test();
+                break;
+
+            default:
+                throw new Exception("Invalid Ident: " . $Ident);
+        }
+    }
+
+    // Kannst du trotzdem behalten (und auch per Wrapper aufrufen, wenn Symcon den erzeugt)
     public function Test(): void
     {
         $this->sendPushover("🧪 Testnachricht vom LowBat Monitor");
@@ -66,8 +83,6 @@ class LowBatMonitor extends IPSModule
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
-        parent::MessageSink($TimeStamp, $SenderID, $Message, $Data);
-
         if ($Message !== VM_UPDATE) {
             return;
         }
@@ -123,7 +138,7 @@ class LowBatMonitor extends IPSModule
 
             $label = trim((string)($row['Label'] ?? ''));
 
-            // Fallback: Variablenname, falls leer
+            // Fallback: Variablenname, falls Label leer
             if ($label === '' && IPS_VariableExists($vid)) {
                 $label = IPS_GetName($vid);
             }
@@ -139,7 +154,6 @@ class LowBatMonitor extends IPSModule
 
     private function readBool(int $varID): bool
     {
-        // Viele Low_Bat sind bool; manche sind 0/1 -> wir behandeln beides sinnvoll
         $v = GetValue($varID);
 
         if (is_bool($v)) {
@@ -154,25 +168,26 @@ class LowBatMonitor extends IPSModule
         return false;
     }
 
-private function sendPushover(string $message): void
-{
-    $inst = $this->ReadPropertyInteger('PushoverInstance');
-    if ($inst <= 0 || !IPS_InstanceExists($inst)) {
-        $this->LogMessage('Keine gültige Pushover-Instanz gewählt.', KL_WARNING);
-        return;
-    }
+    private function sendPushover(string $message): void
+    {
+        $inst = $this->ReadPropertyInteger('PushoverInstance');
+        if ($inst <= 0 || !IPS_InstanceExists($inst)) {
+            $this->LogMessage('Keine gültige Pushover-Instanz gewählt.', KL_WARNING);
+            return;
+        }
 
-    // Optional: Titel/Priorität aus Properties (siehe Punkt 2)
-    $title = $this->ReadPropertyString('PushTitle');
-    if ($title === '') {
-        $title = 'LowBat Monitor';
-    }
-    $priority = $this->ReadPropertyInteger('PushPriority'); // 0 = normal
+        $title = trim($this->ReadPropertyString('PushTitle'));
+        if ($title === '') {
+            $title = 'LowBat Monitor';
+        }
 
-    if (function_exists('TUPO_SendMessage')) {
-        @TUPO_SendMessage($inst, $title, $message, $priority);
-        return;
-    }
+        $priority = (int)$this->ReadPropertyInteger('PushPriority'); // laut Doku 0 = normal
 
-    $this->LogMessage('TUPO_SendMessage() nicht gefunden. Prüfe, ob das Pushover-Modul geladen ist.', KL_ERROR);
+        if (function_exists('TUPO_SendMessage')) {
+            @TUPO_SendMessage($inst, $title, $message, $priority);
+            return;
+        }
+
+        $this->LogMessage('TUPO_SendMessage() nicht gefunden. Prüfe, ob das Pushover-Modul installiert/geladen ist.', KL_ERROR);
+    }
 }
