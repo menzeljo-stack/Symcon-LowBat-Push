@@ -1,0 +1,14 @@
+{
+  "id": "{6B8A1B7D-6C52-4F42-9A10-2EDB55BFAE6A}",
+  "name": "LowBatMonitor",
+  "type": 3,
+  "vendor": "Johannes",
+  "aliases": [
+    "LowBat Monitor"
+  ],
+  "url": "",
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "LBM"
+}
