@@ -154,22 +154,25 @@ class LowBatMonitor extends IPSModule
         return false;
     }
 
-    private function sendPushover(string $message): void
-    {
-        $inst = $this->ReadPropertyInteger('PushoverInstance');
-        if ($inst <= 0 || !IPS_InstanceExists($inst)) {
-            $this->LogMessage('Keine gültige Pushover-Instanz gewählt.', KL_WARNING);
-            return;
-        }
-
-        // Standard bei vielen Pushover-Modulen in Symcon:
-        // PO_SendMessage($InstanceID, $Message, $Title)
-        if (function_exists('PO_SendMessage')) {
-            @PO_SendMessage($inst, $message, 'LowBat Monitor');
-            return;
-        }
-
-        // Wenn dein Pushover-Modul anders heißt, hier anpassen
-        $this->LogMessage('PO_SendMessage() nicht gefunden. Bitte Funktionsnamen deines Pushover-Moduls anpassen.', KL_ERROR);
+private function sendPushover(string $message): void
+{
+    $inst = $this->ReadPropertyInteger('PushoverInstance');
+    if ($inst <= 0 || !IPS_InstanceExists($inst)) {
+        $this->LogMessage('Keine gültige Pushover-Instanz gewählt.', KL_WARNING);
+        return;
     }
+
+    // Optional: Titel/Priorität aus Properties (siehe Punkt 2)
+    $title = $this->ReadPropertyString('PushTitle');
+    if ($title === '') {
+        $title = 'LowBat Monitor';
+    }
+    $priority = $this->ReadPropertyInteger('PushPriority'); // 0 = normal
+
+    if (function_exists('TUPO_SendMessage')) {
+        @TUPO_SendMessage($inst, $title, $message, $priority);
+        return;
+    }
+
+    $this->LogMessage('TUPO_SendMessage() nicht gefunden. Prüfe, ob das Pushover-Modul geladen ist.', KL_ERROR);
 }
