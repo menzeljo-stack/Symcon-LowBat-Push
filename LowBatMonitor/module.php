@@ -6,19 +6,29 @@ class LowBatMonitor extends IPSModule
     {
         parent::Create();
 
-        // Pushover-Instanz (TUPO)
+        // Pushover (TUPO)
         $this->RegisterPropertyInteger('PushoverInstance', 0);
-
-        // Optional: Titel & Priorität
         $this->RegisterPropertyString('PushTitle', 'LowBat Monitor');
         $this->RegisterPropertyInteger('PushPriority', 0);
 
-        // Liste: [{"VariableID":12345,"Label":"Fensterkontakt Küche"}, ...]
+        // Texte
+        $this->RegisterPropertyString('AlarmText', 'Niedriger Batteriezustand');
+        $this->RegisterPropertyString('OkText', 'Batteriezustand OK');
+
+        // Reminder
+        $this->RegisterPropertyBoolean('ReminderEnabled', false);
+        $this->RegisterPropertyInteger('ReminderHour', 9); // 0-23
+
+        // Variablenliste
         $this->RegisterPropertyString('Variables', '[]');
 
-        // interne Buffers
-        $this->SetBuffer('States', json_encode([]));   // letzter bekannter bool-Zustand pro Variable
-        $this->SetBuffer('VarList', json_encode([]));   // zuletzt registrierte VariableIDs
+        // Buffer
+        $this->SetBuffer('States', json_encode([]));     // letzter Zustand pro Variable
+        $this->SetBuffer('VarList', json_encode([]));    // registrierte VariableIDs
+        $this->SetBuffer('Reminders', json_encode([]));  // varID => "YYYY-MM-DD" (letzte Erinnerung/Alarm am Tag)
+
+        // Timer: alle 15 Minuten prüfen (sendet aber max. 1x/Tag pro Variable)
+        $this->RegisterTimer('ReminderTimer', 0, "IPS_RequestAction(\$_IPS['TARGET'], 'ReminderTick', 0);");
     }
 
     public function ApplyChanges()
@@ -37,32 +47,43 @@ class LowBatMonitor extends IPSModule
             }
         }
 
-        // Neue Registrierungen setzen
-        $cfg = $this->getConfigVars();   // [varID => label]
+        // Neue Registrierungen setzen (nur aktive)
+        $cfg = $this->getConfigVars(); // [varID => ['label'=>..., 'enabled'=>bool]]
         $ids = array_keys($cfg);
 
-        foreach ($ids as $vid) {
+        $activeCount = 0;
+        foreach ($cfg as $vid => $info) {
+            if (!$info['enabled']) {
+                continue;
+            }
             if (IPS_VariableExists($vid)) {
                 $this->RegisterMessage($vid, VM_UPDATE);
+                $activeCount++;
             }
         }
-
         $this->SetBuffer('VarList', json_encode($ids));
 
         // Zustände initialisieren (damit beim Speichern nichts sofort triggert)
         $states = [];
-        foreach ($cfg as $vid => $label) {
-            if (!IPS_VariableExists($vid)) {
+        foreach ($cfg as $vid => $info) {
+            if (!$info['enabled'] || !IPS_VariableExists($vid)) {
                 continue;
             }
             $states[(string)$vid] = $this->readBool($vid);
         }
         $this->SetBuffer('States', json_encode($states));
 
-        $this->SetSummary(count($ids) . ' Variablen');
+        // Timer aktivieren/deaktivieren
+        if ($this->ReadPropertyBoolean('ReminderEnabled')) {
+            // alle 15 Minuten
+            $this->SetTimerInterval('ReminderTimer', 15 * 60 * 1000);
+        } else {
+            $this->SetTimerInterval('ReminderTimer', 0);
+        }
+
+        $this->SetSummary($activeCount . ' aktiv / ' . count($ids) . ' gesamt');
     }
 
-    // Damit Buttons / UI-Actions zuverlässig funktionieren:
     public function RequestAction($Ident, $Value)
     {
         switch ($Ident) {
@@ -70,15 +91,18 @@ class LowBatMonitor extends IPSModule
                 $this->Test();
                 break;
 
+            case 'ReminderTick':
+                $this->ReminderTick();
+                break;
+
             default:
                 throw new Exception("Invalid Ident: " . $Ident);
         }
     }
 
-    // Kannst du trotzdem behalten (und auch per Wrapper aufrufen, wenn Symcon den erzeugt)
     public function Test(): void
     {
-        $this->sendPushover("🧪 Testnachricht vom LowBat Monitor");
+        $this->sendPushover("Test (OK)");
     }
 
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
@@ -92,7 +116,12 @@ class LowBatMonitor extends IPSModule
             return;
         }
 
-        $label = $cfg[$SenderID];
+        $label = $cfg[$SenderID]['label'];
+        $enabled = $cfg[$SenderID]['enabled'];
+
+        if (!$enabled) {
+            return;
+        }
 
         $states = json_decode($this->GetBuffer('States'), true);
         if (!is_array($states)) {
@@ -110,16 +139,108 @@ class LowBatMonitor extends IPSModule
         $states[(string)$SenderID] = $new;
         $this->SetBuffer('States', json_encode($states));
 
-        $varName = IPS_GetName($SenderID);
-        $path = IPS_GetLocation($SenderID);
+        // Reminder-Tracking aktualisieren (damit am selben Tag nicht zusätzlich erinnert wird)
+        $rem = $this->loadReminders();
+        $today = date('Y-m-d');
 
         if ($new) {
-            $msg = "🔋 Low_Bat = TRUE\nName: {$label}\nVariable: {$varName}\nOrt: {$path}";
+            // Alarm (TRUE)
+            $msg = $this->formatMessage($label, true, false);
+            $this->sendPushover($msg);
+            $rem[(string)$SenderID] = $today;
         } else {
-            $msg = "✅ Low_Bat zurückgesetzt (FALSE)\nName: {$label}\nVariable: {$varName}\nOrt: {$path}";
+            // OK (FALSE) + Reminder-Status zurücksetzen
+            $msg = $this->formatMessage($label, false, false);
+            $this->sendPushover($msg);
+            unset($rem[(string)$SenderID]);
         }
 
-        $this->sendPushover($msg);
+        $this->saveReminders($rem);
+    }
+
+    private function ReminderTick(): void
+    {
+        if (!$this->ReadPropertyBoolean('ReminderEnabled')) {
+            return;
+        }
+
+        $hour = (int)$this->ReadPropertyInteger('ReminderHour');
+        $nowH = (int)date('G');   // 0-23
+        $nowM = (int)date('i');
+
+        // Wir senden im 15-Minuten-Fenster nach der Ziel-Stunde (Timer läuft alle 15 Minuten)
+        if ($nowH !== $hour) {
+            return;
+        }
+        if ($nowM >= 15) {
+            // in dieser Stunde nur beim ersten Tick (Minute 0-14)
+            return;
+        }
+
+        $cfg = $this->getConfigVars();
+        $states = json_decode($this->GetBuffer('States'), true);
+        if (!is_array($states)) {
+            $states = [];
+        }
+
+        $rem = $this->loadReminders();
+        $today = date('Y-m-d');
+
+        foreach ($cfg as $vid => $info) {
+            if (!$info['enabled'] || !IPS_VariableExists($vid)) {
+                continue;
+            }
+
+            // aktueller Zustand (TRUE = low bat)
+            $cur = $this->readBool($vid);
+            $states[(string)$vid] = $cur; // nebenbei aktualisieren
+
+            if (!$cur) {
+                // wenn OK, sicherheitshalber Reminder-Flag löschen
+                unset($rem[(string)$vid]);
+                continue;
+            }
+
+            // Heute schon gesendet?
+            if (($rem[(string)$vid] ?? '') === $today) {
+                continue;
+            }
+
+            // Reminder senden
+            $msg = $this->formatMessage($info['label'], true, true);
+            $this->sendPushover($msg);
+            $rem[(string)$vid] = $today;
+        }
+
+        $this->SetBuffer('States', json_encode($states));
+        $this->saveReminders($rem);
+    }
+
+    private function formatMessage(string $label, bool $isLow, bool $isReminder): string
+    {
+        // NUR: Name + Zustand/Text
+        $alarmText = trim($this->ReadPropertyString('AlarmText'));
+        if ($alarmText === '') {
+            $alarmText = 'Niedriger Batteriezustand';
+        }
+
+        $okText = trim($this->ReadPropertyString('OkText'));
+        if ($okText === '') {
+            $okText = 'Batteriezustand OK';
+        }
+
+        if ($isLow) {
+            $text = $alarmText;
+            $state = 'TRUE';
+            if ($isReminder) {
+                $text .= ' (Erinnerung)';
+            }
+        } else {
+            $text = $okText;
+            $state = 'FALSE';
+        }
+
+        return "{$label}: {$text} ({$state})";
     }
 
     private function getConfigVars(): array
@@ -136,9 +257,10 @@ class LowBatMonitor extends IPSModule
                 continue;
             }
 
+            $enabled = (bool)($row['Enabled'] ?? true);
             $label = trim((string)($row['Label'] ?? ''));
 
-            // Fallback: Variablenname, falls Label leer
+            // Fallback: Variablenname
             if ($label === '' && IPS_VariableExists($vid)) {
                 $label = IPS_GetName($vid);
             }
@@ -146,7 +268,10 @@ class LowBatMonitor extends IPSModule
                 $label = 'LowBat';
             }
 
-            $out[$vid] = $label;
+            $out[$vid] = [
+                'enabled' => $enabled,
+                'label'   => $label
+            ];
         }
 
         return $out;
@@ -168,6 +293,17 @@ class LowBatMonitor extends IPSModule
         return false;
     }
 
+    private function loadReminders(): array
+    {
+        $rem = json_decode($this->GetBuffer('Reminders'), true);
+        return is_array($rem) ? $rem : [];
+    }
+
+    private function saveReminders(array $rem): void
+    {
+        $this->SetBuffer('Reminders', json_encode($rem));
+    }
+
     private function sendPushover(string $message): void
     {
         $inst = $this->ReadPropertyInteger('PushoverInstance');
@@ -181,7 +317,7 @@ class LowBatMonitor extends IPSModule
             $title = 'LowBat Monitor';
         }
 
-        $priority = (int)$this->ReadPropertyInteger('PushPriority'); // laut Doku 0 = normal
+        $priority = (int)$this->ReadPropertyInteger('PushPriority');
 
         if (function_exists('TUPO_SendMessage')) {
             @TUPO_SendMessage($inst, $title, $message, $priority);
