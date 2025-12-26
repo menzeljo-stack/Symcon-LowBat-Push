@@ -221,12 +221,12 @@ class LowBatMonitor extends IPSModule
         // NUR: Name + Zustand/Text
         $alarmText = trim($this->ReadPropertyString('AlarmText'));
         if ($alarmText === '') {
-            $alarmText = 'Niedriger Batteriezustand';
+            $alarmText = '🧪 Niedriger Batteriezustand';
         }
 
         $okText = trim($this->ReadPropertyString('OkText'));
         if ($okText === '') {
-            $okText = 'Batteriezustand OK';
+            $okText = '✅ Batteriezustand OK';
         }
 
         if ($isLow) {
@@ -240,7 +240,7 @@ class LowBatMonitor extends IPSModule
             $state = 'FALSE';
         }
 
-        return "{$label}: {$text} ({$state})";
+        return "{$label}: {$text}";
     }
 
     private function getConfigVars(): array
