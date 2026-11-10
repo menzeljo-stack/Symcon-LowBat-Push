@@ -1,87 +1,42 @@
 {
   "elements": [
-    {
-      "type": "SelectInstance",
-      "name": "PushoverInstance",
-      "caption": "Pushover Instanz"
-    },
-    {
-      "type": "ValidationTextBox",
-      "name": "PushTitle",
-      "caption": "Push Titel"
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "PushPriority",
-      "caption": "Priorität (0 = normal)",
-      "minimum": -2,
-      "maximum": 2
-    },
-    {
-      "type": "ValidationTextBox",
-      "name": "AlarmText",
-      "caption": "Text bei LOW (TRUE)"
-    },
-    {
-      "type": "ValidationTextBox",
-      "name": "OkText",
-      "caption": "Text bei OK (FALSE)"
-    },
-    {
-      "type": "CheckBox",
-      "name": "ReminderEnabled",
-      "caption": "Tägliche Erinnerung senden, solange LOW anliegt"
-    },
-    {
-      "type": "NumberSpinner",
-      "name": "ReminderHour",
-      "caption": "Erinnerung um (Stunde 0-23)",
-      "minimum": 0,
-      "maximum": 23
-    },
-    {
-      "type": "List",
-      "name": "Variables",
-      "caption": "Überwachte Low_Bat Variablen",
-      "add": true,
-      "delete": true,
-      "sort": true,
-      "columns": [
-        {
-          "caption": "Aktiv",
-          "name": "Enabled",
-          "width": "80px",
-          "add": true,
-          "edit": {
-            "type": "CheckBox"
-          }
-        },
-        {
-          "caption": "Variable",
-          "name": "VariableID",
-          "width": "260px",
-          "add": 0,
-          "edit": {
-            "type": "SelectVariable"
-          }
-        },
-        {
-          "caption": "Name (in Nachricht)",
-          "name": "Label",
-          "width": "auto",
-          "add": "",
-          "edit": {
-            "type": "ValidationTextBox"
-          }
-        }
-      ]
-    }
+    { "type": "ExpansionPanel", "caption": "Benachrichtigung", "expanded": true, "items": [
+      { "type": "SelectInstance", "name": "PushoverInstance", "caption": "Pushover-Instanz" },
+      { "type": "ValidationTextBox", "name": "PushTitle", "caption": "Titel" },
+      { "type": "NumberSpinner", "name": "PushPriority", "caption": "Priorität (0 = normal)", "minimum": -2, "maximum": 2 },
+      { "type": "ValidationTextBox", "name": "AlarmText", "caption": "Kopfzeile bei Störung (leer = Standard)" },
+      { "type": "ValidationTextBox", "name": "OkText", "caption": "Kopfzeile bei Behebung (leer = Standard)" },
+      { "type": "CheckBox", "name": "ReminderEnabled", "caption": "Täglich an offene Störungen erinnern" },
+      { "type": "NumberSpinner", "name": "ReminderHour", "caption": "Erinnerung um (Stunde)", "minimum": 0, "maximum": 23, "suffix": " Uhr" }
+    ]},
+    { "type": "ExpansionPanel", "caption": "Was wird überwacht", "expanded": true, "items": [
+      { "type": "CheckBox", "name": "AutoHomeMaticBattery", "caption": "Alle HomeMatic-Batteriemeldungen (LOWBAT / LOW_BAT) automatisch" },
+      { "type": "CheckBox", "name": "AutoBatteryPercent", "caption": "Batterie-%-Werte anderer Systeme automatisch (Zigbee2MQTT, SwitchBot, Home Assistant …)" },
+      { "type": "NumberSpinner", "name": "BatteryThreshold", "caption": "Batterie schwach unter", "minimum": 1, "maximum": 100, "suffix": " %" },
+      { "type": "CheckBox", "name": "MonitorUnreach", "caption": "HomeMatic-Geräte nicht erreichbar (UNREACH)" },
+      { "type": "CheckBox", "name": "MonitorInstances", "caption": "Instanzen mit Fehlerstatus (Sockets, Module …)" },
+      { "type": "NumberSpinner", "name": "ErrorDelay", "caption": "Erreichbarkeit/Instanzfehler erst melden nach", "minimum": 0, "maximum": 1440, "suffix": " min" }
+    ]},
+    { "type": "ExpansionPanel", "caption": "Zusätzliche Variablen", "items": [
+      { "type": "List", "name": "Variables", "caption": "Eigene Variablen (bool = Störung bei TRUE, oder Zahl mit Schwelle)", "add": true, "delete": true, "sort": { "column": "Label", "direction": "ascending" },
+        "columns": [
+          { "caption": "Aktiv", "name": "Enabled", "width": "70px", "add": true, "edit": { "type": "CheckBox" } },
+          { "caption": "Variable", "name": "VariableID", "width": "300px", "add": 0, "edit": { "type": "SelectVariable" } },
+          { "caption": "Schwelle (0 = bool)", "name": "Threshold", "width": "140px", "add": 0, "edit": { "type": "NumberSpinner", "minimum": 0, "maximum": 100 } },
+          { "caption": "Name in der Meldung", "name": "Label", "width": "auto", "add": "", "edit": { "type": "ValidationTextBox" } }
+        ]}
+    ]},
+    { "type": "ExpansionPanel", "caption": "Ausnahmen", "items": [
+      { "type": "List", "name": "Excludes", "caption": "Ignorierte Objekte (Instanz, Variable oder ganze Kategorie)", "add": true, "delete": true,
+        "columns": [
+          { "caption": "Objekt", "name": "ObjectID", "width": "300px", "add": 0, "edit": { "type": "SelectObject" } },
+          { "caption": "Grund", "name": "Note", "width": "auto", "add": "", "edit": { "type": "ValidationTextBox" } }
+        ]}
+    ]}
   ],
   "actions": [
-    {
-      "type": "Button",
-      "label": "Testnachricht senden",
-      "onClick": "IPS_RequestAction($id, 'Test', 0);"
-    }
+    { "type": "Button", "caption": "Jetzt prüfen", "onClick": "IPS_RequestAction($id, 'Check', 0);" },
+    { "type": "Button", "caption": "Offene Störungen jetzt senden", "onClick": "IPS_RequestAction($id, 'Reminder', 0);" },
+    { "type": "Button", "caption": "Testnachricht senden", "onClick": "IPS_RequestAction($id, 'Test', 0);" }
   ]
 }
