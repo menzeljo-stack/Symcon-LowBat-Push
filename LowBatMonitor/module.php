@@ -3,12 +3,14 @@
 declare(strict_types=1);
 
 /**
- * Störungsmelder (vormals LowBat Monitor) v2.0
+ * Störungsmelder (vormals LowBat Monitor) v2.2
  *
  * Meldet per Pushover sofort, wenn
  *  - ein Batteriezustand schwach wird (HomeMatic LOWBAT/LOW_BAT automatisch,
  *    Batterie-%-Variablen anderer Systeme automatisch, plus eigene Liste),
  *  - ein HomeMatic-Gerät nicht erreichbar ist (UNREACH),
+ *  - ein Gerät mit Batterie-%-Wert seit X Stunden nichts mehr gemeldet hat
+ *    (Home-Assistant-Geräte: wenn die Batterie-Entität in HA 'unavailable' ist),
  *  - eine Instanz in einen Fehlerstatus geht (Status >= 200),
  * und wenn die Störung wieder behoben ist. Optional tägliche Sammel-Erinnerung.
  * Zustände werden als Attribut gespeichert und überstehen Neustarts.
@@ -16,6 +18,7 @@ declare(strict_types=1);
 class LowBatMonitor extends IPSModule
 {
     private const HM_DEVICE = '{EE4A81C6-5C90-4DB7-AD2F-F6BBD521412E}';
+    private const HA_DEVICE = '{72D6A284-1870-4E11-92D8-0402C8233C29}';
 
     public function Create()
     {
@@ -38,6 +41,7 @@ class LowBatMonitor extends IPSModule
         $this->RegisterPropertyBoolean('AutoHomeMaticBattery', true);
         $this->RegisterPropertyBoolean('AutoBatteryPercent', true);
         $this->RegisterPropertyInteger('BatteryThreshold', 20);
+        $this->RegisterPropertyInteger('StaleHours', 24);   // Batterie-%-Geräte: Störung, wenn so lange keine Meldung (0 = aus)
         $this->RegisterPropertyBoolean('MonitorUnreach', true);
         $this->RegisterPropertyBoolean('MonitorInstances', true);
         $this->RegisterPropertyInteger('ErrorDelay', 10);   // Minuten bis Meldung (Erreichbarkeit/Instanzen)
@@ -179,7 +183,8 @@ class LowBatMonitor extends IPSModule
         }
 
         // 2) Batterie-Prozent anderer Systeme (Zigbee2MQTT, SwitchBot, Home Assistant …)
-        if ($this->ReadPropertyBoolean('AutoBatteryPercent') && $thr > 0) {
+        $stale = max(0, $this->ReadPropertyInteger('StaleHours')) * 3600;
+        if ($this->ReadPropertyBoolean('AutoBatteryPercent') && ($thr > 0 || $stale > 0)) {
             foreach (IPS_GetVariableList() as $v) {
                 $o = IPS_GetObject($v);
                 if (!preg_match('/batter/i', $o['ObjectIdent'] . ' ' . $o['ObjectName'])) {
@@ -197,8 +202,21 @@ class LowBatMonitor extends IPSModule
                     continue;
                 }
                 $val = (float) GetValue($v);
-                if ($var['VariableUpdated'] > 0 && $val > 0 && $val < $thr) {
-                    $name = IPS_InstanceExists($parent) ? $this->deviceName($parent) : $this->shortPath($v);
+                $name = IPS_InstanceExists($parent) ? $this->deviceName($parent) : $this->shortPath($v);
+                $upd = $var['VariableUpdated'];
+                if (IPS_InstanceExists($parent) && IPS_GetInstance($parent)['ModuleInfo']['ModuleID'] === self::HA_DEVICE) {
+                    // Home Assistant meldet nur bei Änderung – statt Zeitprüfung die HA-Verfügbarkeit auswerten
+                    if ($stale > 0 && $this->haUnavailable($parent, $v)) {
+                        $out['stale:' . $v] = ['kind' => 'stale', 'text' => '📡 in Home Assistant nicht verfügbar: ' . $name];
+                    }
+                } else {
+                    // Aktualität am Gerät messen (jüngste Variable der Instanz), nicht am Batteriewert
+                    $seen = IPS_InstanceExists($parent) ? $this->lastSeen($parent) : $upd;
+                    if ($stale > 0 && $seen > 0 && (time() - $seen) > $stale) {
+                        $out['stale:' . $v] = ['kind' => 'stale', 'text' => '⏱️ keine Meldung seit ' . date('d.m. H:i', $seen) . ': ' . $name];
+                    }
+                }
+                if ($thr > 0 && $upd > 0 && $val > 0 && $val < $thr) {
                     $out['pct:' . $v] = ['kind' => 'bat', 'text' => '🔋 ' . $name . ' (' . round($val) . ' %)'];
                 }
             }
@@ -277,6 +295,33 @@ class LowBatMonitor extends IPSModule
     }
 
     // ---------- Hilfsfunktionen ----------
+
+    /** HA-Device: ist die Entität dieser Variable (oder ihre Instanz) laut Home Assistant 'unavailable'? */
+    private function haUnavailable(int $inst, int $varID): bool
+    {
+        $jid = @IPS_GetObjectIDByIdent('unavailable_entities_json', $inst);
+        if ($jid === false || !IPS_VariableExists($jid)) {
+            return false;
+        }
+        foreach (json_decode((string) GetValue($jid), true) ?: [] as $e) {
+            if ((int) ($e['entity_id'] ?? 0) === $varID && ($e['available'] ?? true) === false) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Zeitpunkt der jüngsten Variablen-Aktualisierung einer Instanz (eine Ebene tief) */
+    private function lastSeen(int $inst): int
+    {
+        $max = 0;
+        foreach (IPS_GetChildrenIDs($inst) as $c) {
+            if (IPS_VariableExists($c)) {
+                $max = max($max, IPS_GetVariable($c)['VariableUpdated']);
+            }
+        }
+        return $max;
+    }
 
     private function alarmPrefix(): string
     {

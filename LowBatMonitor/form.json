@@ -13,6 +13,7 @@
       { "type": "CheckBox", "name": "AutoHomeMaticBattery", "caption": "Alle HomeMatic-Batteriemeldungen (LOWBAT / LOW_BAT) automatisch" },
       { "type": "CheckBox", "name": "AutoBatteryPercent", "caption": "Batterie-%-Werte anderer Systeme automatisch (Zigbee2MQTT, SwitchBot, Home Assistant …)" },
       { "type": "NumberSpinner", "name": "BatteryThreshold", "caption": "Batterie schwach unter", "minimum": 1, "maximum": 100, "suffix": " %" },
+      { "type": "NumberSpinner", "name": "StaleHours", "caption": "Batterie-%-Gerät melden, wenn keine Meldung seit (0 = aus)", "minimum": 0, "maximum": 720, "suffix": " h" },
       { "type": "CheckBox", "name": "MonitorUnreach", "caption": "HomeMatic-Geräte nicht erreichbar (UNREACH)" },
       { "type": "CheckBox", "name": "MonitorInstances", "caption": "Instanzen mit Fehlerstatus (Sockets, Module …)" },
       { "type": "NumberSpinner", "name": "ErrorDelay", "caption": "Erreichbarkeit/Instanzfehler erst melden nach", "minimum": 0, "maximum": 1440, "suffix": " min" }
